@@ -3,4 +3,5 @@ torchvision
 flask
 matplotlib
 plotly
-numpy 
+numpy
+tqdm 

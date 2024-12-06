@@ -11,6 +11,8 @@ import matplotlib.pyplot as plt
 import base64
 from io import BytesIO
 import os
+from tqdm import tqdm
+import time
 
 # Create directories if they don't exist
 os.makedirs('static', exist_ok=True)
@@ -78,13 +80,18 @@ class MnistCNN(nn.Module):
 def train_model():
     # Training setup
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
-    print(f"Using device: {device}")
-    
+    print(f"\n[INFO] Using device: {device}")
+    if torch.cuda.is_available():
+        print(f"[INFO] GPU: {torch.cuda.get_device_name(0)}")
+        print(f"[INFO] CUDA Version: {torch.version.cuda}\n")
+
+    print("[STEP 1/5] Initializing model...")
     model = MnistCNN().to(device)
     criterion = nn.CrossEntropyLoss()
     optimizer = optim.Adam(model.parameters(), lr=0.001)
 
     # Data loading
+    print("[STEP 2/5] Preparing datasets...")
     transform = transforms.Compose([
         transforms.ToTensor(),
         transforms.Normalize((0.1307,), (0.3081,))
@@ -93,12 +100,18 @@ def train_model():
     train_dataset = datasets.MNIST('./data', train=True, download=True, transform=transform)
     test_dataset = datasets.MNIST('./data', train=False, transform=transform)
 
-    train_loader = DataLoader(train_dataset, batch_size=64, shuffle=True)
-    test_loader = DataLoader(test_dataset, batch_size=64, shuffle=False)
+    train_loader = DataLoader(train_dataset, batch_size=512, shuffle=True, pin_memory=True)
+    test_loader = DataLoader(test_dataset, batch_size=512, shuffle=False, pin_memory=True)
+
+    print(f"[INFO] Total training batches: {len(train_loader)}")
+    print(f"[INFO] Batch size: 512")
+    print(f"[INFO] Training samples: {len(train_dataset)}")
+    print(f"[INFO] Test samples: {len(test_dataset)}\n")
 
     # Training loop
     num_epochs = 10
-    print("Starting training...")
+    print("[STEP 3/5] Starting training...")
+    start_time = time.time()
     
     for epoch in range(num_epochs):
         model.train()
@@ -106,7 +119,8 @@ def train_model():
         correct = 0
         total = 0
         
-        for batch_idx, (data, target) in enumerate(train_loader):
+        pbar = tqdm(train_loader, desc=f'Epoch {epoch+1}/{num_epochs}')
+        for batch_idx, (data, target) in enumerate(pbar):
             data, target = data.to(device), target.to(device)
             
             optimizer.zero_grad()
@@ -120,19 +134,40 @@ def train_model():
             total += target.size(0)
             correct += predicted.eq(target).sum().item()
             
-            if batch_idx % 100 == 0:
-                accuracy = 100. * correct / total
+            # Update progress bar every batch
+            accuracy = 100. * correct / total
+            pbar.set_postfix({
+                'loss': f'{running_loss/(batch_idx+1):.3f}',
+                'accuracy': f'{accuracy:.2f}%'
+            })
+            
+            # Update web interface every 10 batches
+            if batch_idx % 10 == 0:
                 state.logs['loss'].append(running_loss / (batch_idx + 1))
                 state.logs['accuracy'].append(accuracy)
-                
-                print(f'Epoch: {epoch}, Batch: {batch_idx}, Loss: {running_loss/(batch_idx+1):.3f}, Accuracy: {accuracy:.2f}%')
 
-    print("Training complete. Generating test samples...")
+    training_time = time.time() - start_time
+    print(f"\n[INFO] Training completed in {training_time:.2f} seconds")
+
+    print("\n[STEP 4/5] Evaluating model...")
+    model.eval()
+    test_correct = 0
+    test_total = 0
+    with torch.no_grad():
+        for data, target in tqdm(test_loader, desc='Testing'):
+            data, target = data.to(device), target.to(device)
+            output = model(data)
+            _, predicted = output.max(1)
+            test_total += target.size(0)
+            test_correct += predicted.eq(target).sum().item()
     
-    # Test on random samples
+    final_accuracy = 100. * test_correct / test_total
+    print(f"\n[INFO] Final Test Accuracy: {final_accuracy:.2f}%")
+
+    print("\n[STEP 5/5] Generating test samples...")
     model.eval()
     with torch.no_grad():
-        for i in range(10):
+        for i in tqdm(range(10), desc='Generating samples'):
             idx = random.randint(0, len(test_dataset)-1)
             img, label = test_dataset[idx]
             img = img.unsqueeze(0).to(device)
@@ -157,7 +192,7 @@ def train_model():
             })
     
     state.is_training_complete = True
-    print("Test samples generated. You can view the results in the web interface.")
+    print("\n[INFO] Test samples generated. You can view the results in the web interface.")
 
 def main():
     # Start Flask server in a separate thread
