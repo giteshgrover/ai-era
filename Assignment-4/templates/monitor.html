@@ -1,0 +1,62 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>MNIST Training Monitor</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+    <script src="https://cdn.plot.ly/plotly-latest.min.js"></script>
+</head>
+<body>
+    <div class="container">
+        <h1>MNIST Training Monitor</h1>
+        
+        <div class="charts">
+            <div id="lossChart"></div>
+            <div id="accuracyChart"></div>
+        </div>
+        
+        <div id="testResults" class="test-results">
+            <h2>Test Results</h2>
+            <div id="testImages"></div>
+        </div>
+    </div>
+
+    <script>
+        function updateCharts() {
+            fetch('/get_logs').then(response => response.json()).then(data => {
+                const lossTrace = {
+                    y: data.logs.loss,
+                    type: 'scatter',
+                    name: 'Training Loss'
+                };
+                
+                const accuracyTrace = {
+                    y: data.logs.accuracy,
+                    type: 'scatter',
+                    name: 'Accuracy'
+                };
+                
+                Plotly.newPlot('lossChart', [lossTrace], {title: 'Training Loss'});
+                Plotly.newPlot('accuracyChart', [accuracyTrace], {title: 'Accuracy'});
+
+                if (data.training_complete && data.test_samples.length > 0) {
+                    const container = document.getElementById('testImages');
+                    container.innerHTML = ''; // Clear existing images
+                    data.test_samples.forEach(sample => {
+                        const div = document.createElement('div');
+                        div.className = 'test-image';
+                        div.innerHTML = `
+                            <img src="data:image/png;base64,${sample.image}">
+                            <p>Predicted: ${sample.pred}</p>
+                            <p>True: ${sample.true}</p>
+                        `;
+                        container.appendChild(div);
+                    });
+                }
+            });
+        }
+        
+        // Update charts every 2 seconds
+        setInterval(updateCharts, 2000);
+    </script>
+</body>
+</html> 
